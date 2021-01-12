@@ -5,7 +5,7 @@ from sklearn.linear_model import ElasticNet
 from sklearn.preprocessing import StandardScaler
 
 def obtain_uncorrelated_variables(data, correlation_threshold=0.5):
-    """Computer pairwise correlation coefficients and determines uncorrelated vartiables
+    """Computes pairwise correlation coefficients and determines uncorrelated variables
 
     Recursicely selects features from the dataset so that the resulting
     dataset does not have features with pairwise correlation larger than
@@ -34,7 +34,7 @@ def elasticnet_plot(X, y, l1_ratio=.5, log_alpha_min=-4, log_alpha_max=1, alpha_
 
     Applies ElasticNet regression with different Lagrange multipliers alpha
     and plots the resulting coefficients against them yielding information on
-    importance and influence of the vartiables.
+    importance and influence of the variables.
 
     Args:
         X: Dataframe of independent variables

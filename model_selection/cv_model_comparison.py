@@ -79,8 +79,7 @@ class ComparisonResult:
 
 class ModelComparer:
     """Performs a k-fold cross validation to compare multiple models"""
-    # sklearn models come with a scorer, however, to obtain comparable results,
-    # it is important to use the same scorer for all models. Define yours here:
+    
     def __init__(self, preprocessor=None, scorer="neg_mean_squared_error", models=None):
         """Creates a ModelComparer instance
 

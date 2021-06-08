@@ -74,12 +74,14 @@ class ComparisonResult:
         chart = sns.barplot(x='Name', y='Result', data=self.results, order=self.stats.Name, ax=ax)
         chart.set_xticklabels(chart.get_xticklabels(), rotation=45, horizontalalignment='right')
         if baseline:
-            ax.axhline(self.stats.loc[0].Mean, color="black", linestyle=":")
+            baseline_height = self.stats.loc[0].Mean
+            ax.axhline(baseline_height, color="black", linestyle=":")
+            ax.set_ylim(0, 2*baseline_height)
         return chart
 
 class ModelComparer:
     """Performs a k-fold cross validation to compare multiple models"""
-    
+
     def __init__(self, preprocessor=None, scorer="neg_mean_squared_error", models=None):
         """Creates a ModelComparer instance
 

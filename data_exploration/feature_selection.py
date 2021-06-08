@@ -25,7 +25,7 @@ def obtain_independent_variables(data, method='variance_inflation_factor', thres
     Returns:
         List of all independent variables
     """
-    if method == 'variance_inflation_factor' or method == 'vif':
+    if method in ['variance_inflation_factor', 'vif']:
         threshold = threshold or 5
         return obtain_independent_variables_vif(data, threshold)
     if method == 'correlation':

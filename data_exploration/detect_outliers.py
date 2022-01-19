@@ -1,9 +1,11 @@
 from math import sqrt
+from typing import Optional, Tuple
 
 import pandas as pd
 from scipy.stats import norm, t
 
-def std_test(data, significance=0.01, sigma_threshold=None):
+
+def std_test(data: pd.DataFrame, significance: float = 0.01, sigma_threshold: Optional[float] = None) -> pd.DataFrame:
     """Identifies outliers based on standard deviation from sample mean
 
     Computes deviations of samples from the population mean in terms of
@@ -31,7 +33,8 @@ def std_test(data, significance=0.01, sigma_threshold=None):
     outlier_cols = outlier_dists.idxmax(axis=1)
     return pd.DataFrame(data={'column': outlier_cols, 'stds': max_dists[outler_mask]})
 
-def _grubbs_test(series, significance):
+
+def _grubbs_test(series: pd.Series, significance: float) -> Optional[Tuple[int, float]]:
     """Identifies outliers in a single series using Grubbs' test
 
     https://en.wikipedia.org/wiki/Grubbs%27s_test
@@ -55,7 +58,7 @@ def _grubbs_test(series, significance):
     return None
 
 
-def grubbs_test(data, significance=0.01):
+def grubbs_test(data: pd.DataFrame, significance: float = 0.01) -> pd.DataFrame:
     """Identifies outliers in a dataset based on Grubbs' test
 
     https://en.wikipedia.org/wiki/Grubbs%27s_test
@@ -85,7 +88,8 @@ METHODS = {
     'grubbs': grubbs_test
 }
 
-def recursive_outlier_detection(data, max_iter=None, method='std', **kwargs):
+
+def recursive_outlier_detection(data: pd.DataFrame, max_iter: int = None, method: str = 'std', **kwargs) -> pd.DataFrame:
     """Recursively identifies and removes outliers from a dataset
 
     Performs max_iter iterations of outlier detection and repeats recursive

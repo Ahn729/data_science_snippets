@@ -15,15 +15,16 @@ from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, \
     GradientBoostingRegressor, AdaBoostRegressor
 from sklearn.neural_network import MLPRegressor
 from xgboost import XGBRegressor
+from pyearth import Earth
 
 MODELS = {
     'dummy_regressor': DummyRegressor(),
     'linear_regression': LinearRegression(),
     'polynomial_regression_deg_2': make_pipeline(PolynomialFeatures(degree=2), LinearRegression()),
-    'polynomial_regression_deg_3': make_pipeline(PolynomialFeatures(degree=3), LinearRegression()),
     'SGD': SGDRegressor(),
     'elastic_net': ElasticNet(),
     'huber_regressor': HuberRegressor(),
+    'MARS': Earth(),
     '3_nearest_neighbours': KNeighborsRegressor(n_neighbors=3),
     '5_nearest_neighbours': KNeighborsRegressor(n_neighbors=5),
     '11_nearest_neighbours': KNeighborsRegressor(n_neighbors=11),
@@ -38,6 +39,7 @@ MODELS = {
     'xgboost': XGBRegressor(),
     'neural_network': MLPRegressor(hidden_layer_sizes=(20, 20), max_iter=5000)
 }
+
 
 class ComparisonResult:
     """Result of a fitted ModelComparer
@@ -78,6 +80,7 @@ class ComparisonResult:
             ax.axhline(baseline_height, color="black", linestyle=":")
             ax.set_ylim(0, 2*baseline_height)
         return chart
+
 
 class ModelComparer:
     """Performs a k-fold cross validation to compare multiple models"""

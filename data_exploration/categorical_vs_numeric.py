@@ -8,7 +8,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 
-def anova(dataset, test_col, target_col):
+def anova(dataset: pd.DataFrame, test_col: str, target_col: str):
     """Performs a one-way ANOVA F-test for groups in test_col with values in target_col.
 
     Note that ANOVA tests reqire independently, normally distributed samples with
@@ -27,14 +27,14 @@ def anova(dataset, test_col, target_col):
     return result.iloc[0, -1]
 
 
-def anova_for_all(dataset, target_col, significance=0.05):
-    """Performs a one-way ANOVA F-test for for all categorical columns against target_col.
+def anova_for_all(dataset: pd.DataFrame, target_col: str, significance: float = 0.05) -> pd.DataFrame:
+    """Performs a one-way ANOVA F-test for all categorical columns against target_col.
 
     Performs a one-way ANOVA F-test to all tuples of the form
     (categorical col, target_col) in order to test whether the medians in each
     of the classes are equal.
 
-    Note that ANOVA tests reqire independently, normally distributed samples with
+    Note that ANOVA tests require independently, normally distributed samples with
     homoscedastic groups. If those assumptions are not met, consider using the
     (less powerful) Kruskal-Wallis H-test.
 
@@ -58,7 +58,7 @@ def anova_for_all(dataset, target_col, significance=0.05):
     return df.set_index('Column').sort_values(by='p-val')
 
 
-def kruskal(dataset, test_col, target_col, nan_policy='propagate'):
+def kruskal(dataset: pd.DataFrame, test_col: str, target_col: str, nan_policy: str = 'propagate'):
     """Applies Kruskal-Wallis H-test to a single column
 
 
@@ -95,7 +95,10 @@ def kruskal(dataset, test_col, target_col, nan_policy='propagate'):
     return sp.kruskal(*samples, nan_policy=_nan_policy).pvalue
 
 
-def kruskal_for_all(dataset, target_col, significance=1, nan_policy='propagate'):
+def kruskal_for_all(dataset: pd.DataFrame,
+                    target_col: str,
+                    significance: float = 1,
+                    nan_policy: str = 'propagate') -> pd.DataFrame:
     """Applies Kruskal-Wallis H-test to all categorical columns
 
     Applies Kruskal-Wallis H-test to all tuples of the form
@@ -122,11 +125,16 @@ def kruskal_for_all(dataset, target_col, significance=1, nan_policy='propagate')
             result_dict[col] = [pr_f, dataset[col].nunique(dropna=(nan_policy != 'handle'))]
     df = pd.DataFrame.from_dict(
         result_dict, orient='index', columns=[f'p({target_col})', 'nunique']
-        )
+    )
     return df.sort_values(by=f'p({target_col})').astype({f'p({target_col})': float, 'nunique': int})
 
 
-def kruskal_one_vs_all(dataset, cat_col, target_col, significance=1, nan_policy="omit", include_stats=True):
+def kruskal_one_vs_all(dataset: pd.DataFrame,
+                       cat_col: str,
+                       target_col: str,
+                       significance: float = 1,
+                       nan_policy: str = "omit",
+                       include_stats: bool = True) -> pd.DataFrame:
     """Applies Kruskal-Wallis H-test to all categories in a specified column
 
     Applies Kruskal-Wallis H-test to all tuples of the form
@@ -163,7 +171,7 @@ def kruskal_one_vs_all(dataset, cat_col, target_col, significance=1, nan_policy=
 
     df = pd.DataFrame.from_dict(
         result_dict, orient='index', columns=columns
-        )
+    )
     return df.sort_values(by='p')
 
 

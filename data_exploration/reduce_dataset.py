@@ -1,3 +1,6 @@
+# noqa
+# TODO: Refactor and cleanup
+
 def reduce_dataset(df):
     print(f'{df.shape}')
     # Drop columns which only have na entries

@@ -13,6 +13,15 @@ from statsmodels.tools import add_constant
 from tqdm import tqdm
 
 
+__all__ = ['obtain_independent_variables', 'obtain_independent_variables_vif', 'obtain_important_variables_loo',
+           'obtain_uncorrelated_variables', 'predictor_importance_loo', 'elasticnet_plot']
+
+
+def _print_if_verbose(message, verbose):
+    if verbose:
+        print(message)
+
+
 def obtain_independent_variables(data, method='variance_inflation_factor', threshold=None, **kwargs):
     """Obtains independent variables recursively
 
@@ -118,19 +127,17 @@ def obtain_important_variables_loo(X: pd.DataFrame,
     Returns:
 
     """
-    if verbose:
-        print(f"CV score start: {cross_val_score(model, X, y).mean()}.")
+    _print_if_verbose(f"CV score start: {cross_val_score(model, X, y).mean()}.", verbose)
     while True:
         loo_scores = predictor_importance_loo(X, y, model, verbose=verbose)
         lowest_score = loo_scores.loo_score.iat[-1]
-        if lowest_score > threshold:
-            break
         least_important_feature = loo_scores.feature.iat[-1]
-        if verbose:
-            print(f"Removed feature {least_important_feature} with score {lowest_score}.")
+        if lowest_score > threshold:
+            _print_if_verbose(f"Not removing feature {least_important_feature} with score {lowest_score}.", verbose)
+            break
+        _print_if_verbose(f"Removed feature {least_important_feature} with score {lowest_score}.", verbose)
         X = X.drop(columns=[least_important_feature])
-    if verbose:
-        print(f"CV score end: {cross_val_score(model, X, y).mean()}.")
+    _print_if_verbose(f"CV score end: {cross_val_score(model, X, y).mean()}.", verbose)
     return list(X.columns)
 
 

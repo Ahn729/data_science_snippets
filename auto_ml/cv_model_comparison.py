@@ -7,6 +7,9 @@ from data_exploration.feature_selection import obtain_independent_variables
 from model_selection.cv_model_comparison import ModelComparer
 
 
+__all__ = ['AutoMLModelComparer']
+
+
 class AutoMLModelComparer:
     """Performs a k-fold cross validation to compare multiple models
 

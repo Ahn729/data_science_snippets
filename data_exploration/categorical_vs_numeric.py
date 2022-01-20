@@ -7,6 +7,8 @@ import scipy.stats as sp
 import seaborn as sns
 import matplotlib.pyplot as plt
 
+__all__ = ['anova', 'anova_for_all', 'kruskal', 'kruskal_for_all', 'kruskal_one_vs_all', 'strip_and_boxplot']
+
 
 def anova(dataset: pd.DataFrame, test_col: str, target_col: str):
     """Performs a one-way ANOVA F-test for groups in test_col with values in target_col.

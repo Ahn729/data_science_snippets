@@ -17,6 +17,8 @@ from sklearn.neural_network import MLPRegressor
 from xgboost import XGBRegressor
 from pyearth import Earth
 
+__all__ = ['ModelComparer', 'ComparisonResult']
+
 MODELS = {
     'dummy_regressor': DummyRegressor(),
     'linear_regression': LinearRegression(),

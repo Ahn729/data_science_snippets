@@ -80,7 +80,7 @@ class ComparisonResult:
         if baseline:
             baseline_height = self.stats.loc[0].Mean
             ax.axhline(baseline_height, color="black", linestyle=":")
-            ax.set_ylim(0, 2*baseline_height)
+            ax.set_ylim(0, 1.5*baseline_height)
         return chart
 
 

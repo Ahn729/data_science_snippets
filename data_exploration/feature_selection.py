@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.base import RegressorMixin
 from sklearn.linear_model import ElasticNet, LinearRegression
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import StandardScaler
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.tools import add_constant
@@ -33,12 +33,12 @@ def obtain_independent_variables(data, method='variance_inflation_factor', thres
     Args:
          data: Dataframe
          method: Method used to measure independence. Currently, supports computing
-            "variance_inflation_factor", "leave_one_out" or "correlation"
+            "variance_inflation_factor", "leave_one_out", "recursive_inclusion" or "correlation"
          threshold: Threshold used to flag features as dependent (in some way) if
             value of method exceeds this value. Default: 0.5 for "correlation",
-            1 for "leave_one_out", and 5 for "variance_inflation_factor"
-        kwargs: Only used for "leave_one_out". In that case please specify the dependent
-            variable "y=..." as well as the model to use "model=..."
+            1 for "leave_one_out", 0.1 for "recursive_inclusion" and 5 for "variance_inflation_factor"
+        kwargs: Only used for "leave_one_out" and "recursive_inclusion". In that case please specify
+         the dependent variable "y=..." as well as the model to use "model=..."
 
     Returns:
         List of all independent variables
@@ -52,8 +52,11 @@ def obtain_independent_variables(data, method='variance_inflation_factor', thres
     if method in ['leave_one_out', 'loo']:
         threshold = threshold or 1
         return obtain_important_variables_loo(X=data, threshold=threshold, **kwargs)
+    if method in ['recursive_inclusion', 'ri']:
+        threshold = threshold or 0.1
+        return obtain_important_variables_ri(X=data, threshold=threshold, **kwargs)
     raise ValueError("""Method not understood. Please specify either
-        'variance_inflation_factor', 'leave_one_out' or 'correlation'.""")
+        'variance_inflation_factor', 'leave_one_out', 'recursive_inclusion' or 'correlation'.""")
 
 
 def obtain_independent_variables_vif(data, threshold=5):
@@ -136,7 +139,7 @@ def obtain_important_variables_loo(X: pd.DataFrame,
             _print_if_verbose(f"Not removing feature {least_important_feature} with score {lowest_score}.", verbose)
             break
         _print_if_verbose(f"Removed feature {least_important_feature} with score {lowest_score}.", verbose)
-        X = X.drop(columns=[least_important_feature])
+        X = X.drop(columns=least_important_feature)
     _print_if_verbose(f"CV score end: {cross_val_score(model, X, y).mean()}.", verbose)
     return list(X.columns)
 
@@ -188,6 +191,96 @@ def predictor_importance_loo(X: pd.DataFrame,
     return pd.DataFrame(data=results).sort_values(by="loo_score", ascending=False)
 
 
+def obtain_important_variables_ri(X: pd.DataFrame,
+                                  y: np.ndarray,
+                                  threshold: float = 0.01,
+                                  model: RegressorMixin = LinearRegression(),
+                                  verbose=False) -> List[str]:
+    """Performs a recursive inclusion analysis to determine important features
+
+    Recursively includes features which the model supplied deems as most relevant (to be precise,
+    the absolute score increase must be more than threshold) until no feature is relevant
+    enough to be included.
+
+    Args:
+        X: Data frame containing independent features.
+        y: Array containing the dependent feature
+        threshold: Minimum amount that a feature must contribute to model score
+            to be contained in the final set
+        model: Model to use for the analysis. Note that the results may heavily depend
+            on the model chosen.
+        verbose: Print progress
+
+    Returns:
+
+    """
+    X_base = X.drop(columns=X.columns)
+    candidates = X.copy()
+    while len(candidates.columns) > 0:
+        incl_scored = predictor_importance_incl(X_base, candidates, y, model, verbose=verbose)
+        highest_score = incl_scored.include_score.iat[0]
+        most_important_feature = incl_scored.feature.iat[0]
+        if highest_score < threshold:
+            _print_if_verbose(f"Not including feature {most_important_feature} with score {highest_score}.", verbose)
+            break
+        _print_if_verbose(f"Included feature {most_important_feature} with score {highest_score}.", verbose)
+        X_base[most_important_feature] = candidates[most_important_feature]
+        candidates = candidates.drop(columns=most_important_feature)
+
+    if verbose:
+        print(f"CV score end: {cross_val_score(model, X_base, y).mean()}.")
+        print(f"CV score all features: {cross_val_score(model, X, y).mean()}.")
+    return list(X_base.columns)
+
+
+def predictor_importance_incl(X: pd.DataFrame,
+                              candidates: pd.DataFrame,
+                              y: np.ndarray,
+                              model: RegressorMixin,
+                              verbose: bool = True) -> pd.DataFrame:
+    """Performs a recursive inclusion analysis to determine important features
+
+    Iterates over all features in the candidates dataset and determines the scores (R^2-values)
+    of the model fitted on the data in X plus the feature. Features will then be ranked
+    according to the score gain that including this feature implied, relative to the
+    score of the model on the original dataset. Scores are computed using k-fold cross-validation
+    The result dataset contains values equal to the increase in score, i.e.
+            <score of model with feature> - <score of model without feature>
+    (bigger is better).
+
+    Args:
+        X: Data frame containing independent features.
+        candidates: Data frame containing independent feature candidates that may
+            be included in the model
+        y: Array containing the dependent feature
+        model: Model to use for the analysis. Note that the results may heavily depend
+            on the model chosen.
+        verbose: print progress bar
+
+    Returns:
+        Data frame containing features and score quotients for both train and test set
+    """
+    results = {
+        "feature": [],
+        "include_score": [],
+    }
+
+    base_score = cross_val_score(model, X, y).mean() if len(X.columns) > 0 else 0
+
+    iter_set = tqdm(candidates.columns) if verbose else candidates.columns
+
+    for feature_name in iter_set:
+        X_plus_feature = X.copy()
+        X_plus_feature[feature_name] = candidates[feature_name]
+        score_with_feature = cross_val_score(model, X_plus_feature, y).mean()
+
+        include_score = score_with_feature - base_score
+
+        results["feature"].append(feature_name)
+        results["include_score"].append(include_score)
+    return pd.DataFrame(data=results).sort_values(by="include_score", ascending=False)
+
+
 def elasticnet_plot(X, y, l1_ratio=.5, log_alpha_min=-4, log_alpha_max=1, alpha_step=50, ax=None, **kwargs):
     """Plots ElasticNet regression coefficients against Lagrange multiplier
 
@@ -221,7 +314,7 @@ def elasticnet_plot(X, y, l1_ratio=.5, log_alpha_min=-4, log_alpha_max=1, alpha_
         regressor = ElasticNet(fit_intercept=False, alpha=10**alpha, l1_ratio=l1_ratio, **kwargs)
         regressor.fit(X_sc, y_sc)
         results[i] = regressor.coef_
-        _vars = list()
+    _vars = list()
 
     # For improved readability, linestyle is changed after color palette is exhausted
     color_palette_length = len(plt.rcParams['axes.prop_cycle'].by_key()['color'])

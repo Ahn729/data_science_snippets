@@ -1,7 +1,6 @@
 import warnings
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any, Literal
 
-import matplotlib
 from pandas.core.dtypes.common import is_numeric_dtype
 from statsmodels.api import stats
 from statsmodels.formula.api import ols
@@ -207,18 +206,54 @@ def kruskal_one_vs_all(dataset: pd.DataFrame,
     return df.sort_values(by='p')
 
 
+def _combined_boxplot(kind: Literal['stripplot', 'swarmplot'],
+                      common_kwargs: dict,
+                      boxplot_kwargs: dict,
+                      pointplot_kwargs: dict,
+                      figsize: Optional[Tuple[int, int]] = None):
+
+    ax = common_kwargs.get('ax', None)
+    if not ax:
+        fig, ax = plt.subplots(figsize=figsize)
+        common_kwargs['ax'] = ax
+
+    pointplot = getattr(sns, kind)
+    pointplot(**common_kwargs, **pointplot_kwargs)
+    sns.boxplot(**common_kwargs, **boxplot_kwargs, width=.5, color='white', fliersize=0)
+    plt.xticks(rotation=45)
+
+
 def strip_and_boxplot(data: pd.DataFrame,
                       x: str,
                       y: str,
                       hue: Optional[str] = None,
                       figsize: Tuple[int, int] = (12, 8),
                       alpha: float = 1,
-                      ax: Optional[matplotlib.axes] = None,
+                      ax: Any = None,
                       strip_kwargs: Optional[dict] = None,
                       box_kwargs: Optional[dict] = None) -> None:
     strip_kwargs, box_kwargs = strip_kwargs or dict(), box_kwargs or dict()
-    if not ax:
-        fig, ax = plt.subplots(figsize=figsize)
-    sns.stripplot(data=data, x=x, y=y, hue=hue, alpha=alpha, ax=ax, jitter=.15, **strip_kwargs)
-    sns.boxplot(data=data, x=x, y=y, color='white', ax=ax, width=.5, fliersize=0, **box_kwargs)
-    plt.xticks(rotation=45)
+    common_kwargs = dict(data=data, x=x, y=y)
+    if ax:
+        common_kwargs['ax'] = ax
+    pointplot_kwargs = dict(hue=hue, alpha=alpha, jitter=.15, **strip_kwargs)
+    boxplot_kwargs = box_kwargs
+    return _combined_boxplot("stripplot", common_kwargs, boxplot_kwargs, pointplot_kwargs, figsize=figsize)
+
+
+def swarm_and_boxplot(data: pd.DataFrame,
+                      x: str,
+                      y: str,
+                      hue: Optional[str] = None,
+                      figsize: Tuple[int, int] = (12, 8),
+                      alpha: float = 1,
+                      ax: Any = None,
+                      swarm_kwargs: Optional[dict] = None,
+                      box_kwargs: Optional[dict] = None) -> None:
+    swarm_kwargs, box_kwargs = swarm_kwargs or dict(), box_kwargs or dict()
+    common_kwargs = dict(data=data, x=x, y=y, ax=ax)
+    if ax:
+        common_kwargs['ax'] = ax
+    pointplot_kwargs = dict(hue=hue, alpha=alpha, **swarm_kwargs)
+    boxplot_kwargs = box_kwargs
+    return _combined_boxplot("swarmplot", common_kwargs, boxplot_kwargs, pointplot_kwargs, figsize=figsize)

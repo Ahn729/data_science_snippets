@@ -2,11 +2,11 @@ from typing import Optional
 
 from sklearn.preprocessing import StandardScaler
 
-from data_exploration.reduce_dataset import reduce_dataset
-from data_exploration.detect_outliers import recursive_outlier_detection
-from data_exploration.feature_selection import obtain_independent_variables
+from ..data_exploration.reduce_dataset import reduce_dataset
+from ..data_exploration.detect_outliers import recursive_outlier_detection
+from ..data_exploration.feature_selection import obtain_independent_variables
 
-from model_selection.cv_model_comparison import ModelComparer, ComparisonResult
+from ..model_selection.cv_model_comparison import ModelComparer, ComparisonResult
 
 __all__ = ['AutoMLModelComparer']
 

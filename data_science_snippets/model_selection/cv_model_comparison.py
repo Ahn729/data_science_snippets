@@ -63,7 +63,7 @@ class ComparisonResult:
         self.results = results
         self.stats = stats
 
-    def plot_results(self, ax=None, baseline=True):
+    def plot_results(self, ax=None, baseline=True) -> plt.Axes:
         """Create a barplot visualising the result
 
         Args:
@@ -102,7 +102,7 @@ class ModelComparer:
         self.preprocessor = preprocessor
         self.scorer = scorer
 
-    def fit(self, X_train, y_train, cv=5):
+    def fit(self, X_train, y_train, cv=5) -> ComparisonResult:
         """Fit the comparer on the specified data
 
         Args:

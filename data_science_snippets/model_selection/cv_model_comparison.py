@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from sklearn.pipeline import make_pipeline
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_score, KFold
 from sklearn.preprocessing import PolynomialFeatures
 
 from sklearn.dummy import DummyRegressor
@@ -114,10 +114,13 @@ class ModelComparer:
         """
         results = pd.DataFrame(columns=['Name', 'Result'])
         result_stats = pd.DataFrame(columns=['Name', 'Mean', 'Std.'])
+
+        kfold = KFold(n_splits=cv, shuffle=True, random_state=42)
+
         for name, model in self.models.items():
             print(f'Trying {name}.')
             regressor = make_pipeline(self.preprocessor, model)
-            cvs = cross_val_score(regressor, X_train, y_train, cv=cv, scoring=self.scorer)
+            cvs = cross_val_score(regressor, X_train, y_train, cv=kfold, scoring=self.scorer)
             result_stats.loc[len(result_stats)] = [name, (-1)*cvs.mean(), cvs.std()]
             for score in cvs:
                 results.loc[len(results)] = [name, (-1)*score]

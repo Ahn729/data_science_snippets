@@ -1,6 +1,9 @@
+from typing import Optional, Union, Callable, List
+
 import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
+from sklearn.base import TransformerMixin, BaseEstimator
 
 from sklearn.pipeline import make_pipeline
 from sklearn.model_selection import cross_val_score, KFold
@@ -63,7 +66,7 @@ class ComparisonResult:
         self.results = results
         self.stats = stats
 
-    def plot_results(self, ax=None, baseline=True) -> plt.Axes:
+    def plot_results(self, ax: Optional[plt.Axes] = None, baseline: bool = True) -> plt.Axes:
         """Create a barplot visualising the result
 
         Args:
@@ -79,15 +82,22 @@ class ComparisonResult:
         chart.set_xticklabels(chart.get_xticklabels(), rotation=45, horizontalalignment='right')
         if baseline:
             baseline_height = self.stats.loc[0].Mean
+            min_value = self.stats.Mean.min()
+            if min_value > 0:
+                min_value = 0
             ax.axhline(baseline_height, color="black", linestyle=":")
-            ax.set_ylim(0, 1.5*baseline_height)
+            ax.set_ylim(min_value, 1.5*baseline_height)
         return chart
 
 
 class ModelComparer:
     """Performs a k-fold cross validation to compare multiple models"""
 
-    def __init__(self, preprocessor=None, scorer="neg_mean_squared_error", models=None):
+    def __init__(self,
+                 preprocessor: Optional[TransformerMixin] = None,
+                 scorer: Union[str, Callable] = "neg_mean_squared_error",
+                 multiply_by_minus_one: bool = True,
+                 models: Optional[List[BaseEstimator]] = None):
         """Creates a ModelComparer instance
 
         Args:
@@ -95,12 +105,16 @@ class ModelComparer:
             scorer: Scoring function to use. sklearn models come with a scorer,
                 however, to obtain comparable results, it is important to use
                 the same scorer for all models. Default: Negative MSE
+            multiply_by_minus_one: Whether result statistics shall be multiplied
+                by (-1). This gives more meaningful results if the scorer is
+                negative of something (like negative MSE)
             models: dict of models for cross validation evaluation. Pass None
                 to use the built-in set of models
         """
         self.models = models or MODELS
         self.preprocessor = preprocessor
         self.scorer = scorer
+        self.multiply_by_minus_one = multiply_by_minus_one
 
     def fit(self, X_train, y_train, cv=5) -> ComparisonResult:
         """Fit the comparer on the specified data
@@ -117,12 +131,17 @@ class ModelComparer:
 
         kfold = KFold(n_splits=cv, shuffle=True, random_state=42)
 
+        if self.multiply_by_minus_one:
+            factor = -1
+        else:
+            factor = 1
+
         for name, model in self.models.items():
             print(f'Trying {name}.')
             regressor = make_pipeline(self.preprocessor, model)
             cvs = cross_val_score(regressor, X_train, y_train, cv=kfold, scoring=self.scorer)
-            result_stats.loc[len(result_stats)] = [name, (-1)*cvs.mean(), cvs.std()]
+            result_stats.loc[len(result_stats)] = [name, factor*cvs.mean(), cvs.std()]
             for score in cvs:
-                results.loc[len(results)] = [name, (-1)*score]
+                results.loc[len(results)] = [name, factor*score]
         result_stats = result_stats.sort_values(by='Mean')
         return ComparisonResult(results, result_stats)

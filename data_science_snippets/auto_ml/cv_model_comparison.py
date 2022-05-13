@@ -43,6 +43,7 @@ class AutoMLModelComparer:
 
     def create_comparison_result(self,
                                  target: str,
+                                 nan_handler_kwargs: Optional[dict] = None,
                                  outlier_detection_kwargs: Optional[dict] = None,
                                  independent_variables_kwargs: Optional[dict] = None,
                                  model_comparer_kwargs: Optional[dict] = None) -> ComparisonResult:
@@ -54,6 +55,7 @@ class AutoMLModelComparer:
 
         Args:
             target: Target column ("y")
+            nan_handler_kwargs: Kwargs passed down to nan handler
             outlier_detection_kwargs: Kwargs passed down to outlier detection method
             independent_variables_kwargs: Kwargs passed down to obtain_independent_variables
             model_comparer_kwargs: Kwargs passed down to ModelComparer __init__.
@@ -61,11 +63,12 @@ class AutoMLModelComparer:
         Returns:
 
         """
+        nan_handler_kwargs = nan_handler_kwargs or dict()
         outlier_detection_kwargs = outlier_detection_kwargs or dict()
         independent_variables_kwargs = independent_variables_kwargs or dict()
         model_comparer_kwargs = model_comparer_kwargs or dict()
 
-        self._reduced_data = reduce_dataset(self.data)
+        self._reduced_data = reduce_dataset(self.data, remove_nans=True, **nan_handler_kwargs)
         self._outliers = recursive_outlier_detection(self.reduced_data, **outlier_detection_kwargs)
         df = self.reduced_data.drop(self.outliers.index)
         X, y = df.drop(columns=target), df[target]

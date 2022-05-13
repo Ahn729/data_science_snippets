@@ -125,5 +125,5 @@ def recursive_outlier_detection(data: pd.DataFrame, max_iter: int = None, method
             break
         data = data.drop(new_outliers.index)
         new_outliers['iteration'] = i + 1
-        outliers = outliers.append(new_outliers)
+        outliers = pd.concat([outliers, new_outliers])
     return outliers

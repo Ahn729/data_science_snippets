@@ -6,7 +6,9 @@ from matplotlib import pyplot as plt
 from sklearn.model_selection import GridSearchCV
 
 
-def plot_gsvc_results(gscv: GridSearchCV, hyperparams: Dict[str, List[Any]], min_score: float = None):
+def plot_gscv_results(gscv: GridSearchCV,
+                      hyperparams: Dict[str, List[Any]],
+                      min_score: float = None) -> plt.Figure:
     """Plots the results of a fitted GridSearchCV instance as boxplots
 
     Args:
@@ -26,3 +28,4 @@ def plot_gsvc_results(gscv: GridSearchCV, hyperparams: Dict[str, List[Any]], min
     fig, axs = plt.subplots(nrows=n_plots, figsize=(8, 6*n_plots))
     for i, param in enumerate(hyperparams.keys()):
         sns.boxplot(data=results, x=f'param_{param}', y="mean_test_score", ax=axs[i])
+    return fig

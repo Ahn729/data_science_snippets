@@ -1,20 +1,22 @@
+__all__ = ['obtain_independent_variables', 'obtain_independent_variables_vif', 'obtain_important_variables_loo',
+           'obtain_uncorrelated_variables', 'predictor_importance_loo', 'elasticnet_plot']
+
 from itertools import cycle
-from typing import List
+from typing import List, Optional, Any, Dict
 
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.base import RegressorMixin
 from sklearn.linear_model import ElasticNet, LinearRegression
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_score, KFold
 from sklearn.preprocessing import StandardScaler
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.tools import add_constant
 from tqdm import tqdm
 
 
-__all__ = ['obtain_independent_variables', 'obtain_independent_variables_vif', 'obtain_important_variables_loo',
-           'obtain_uncorrelated_variables', 'predictor_importance_loo', 'elasticnet_plot']
+kfold = KFold(shuffle=True, random_state=42)
 
 
 def _print_if_verbose(message, verbose):
@@ -22,7 +24,10 @@ def _print_if_verbose(message, verbose):
         print(message)
 
 
-def obtain_independent_variables(data, method='variance_inflation_factor', threshold=None, **kwargs):
+def obtain_independent_variables(data: pd.DataFrame,
+                                 method: str = 'variance_inflation_factor',
+                                 threshold: Optional[float] = None,
+                                 **kwargs) -> List[str]:
     """Obtains independent variables recursively
 
     Recursively selects features from the dataset so that the resulting
@@ -43,6 +48,8 @@ def obtain_independent_variables(data, method='variance_inflation_factor', thres
     Returns:
         List of all independent variables
     """
+    if threshold == 0:
+        threshold = np.finfo(float).eps
     if method in ['variance_inflation_factor', 'vif']:
         threshold = threshold or 5
         return obtain_independent_variables_vif(data, threshold)
@@ -59,7 +66,8 @@ def obtain_independent_variables(data, method='variance_inflation_factor', thres
         'variance_inflation_factor', 'leave_one_out', 'recursive_inclusion' or 'correlation'.""")
 
 
-def obtain_independent_variables_vif(data, threshold=5):
+def obtain_independent_variables_vif(data: pd.DataFrame,
+                                     threshold: float = 5) -> List[str]:
     """Obtains non-multicollinear variables by recursively computing variance_inflation_factors
 
     Recursively selects features from the dataset so that the resulting
@@ -84,7 +92,8 @@ def obtain_independent_variables_vif(data, threshold=5):
     return indep_variables
 
 
-def obtain_uncorrelated_variables(data, correlation_threshold=0.5):
+def obtain_uncorrelated_variables(data: pd.DataFrame,
+                                  correlation_threshold: float = 0.5) -> List[str]:
     """Computes pairwise correlation coefficients and determines uncorrelated variables
 
     Recursively selects features from the dataset so that the resulting
@@ -111,6 +120,7 @@ def obtain_important_variables_loo(X: pd.DataFrame,
                                    y: np.ndarray,
                                    threshold: float = 1,
                                    model: RegressorMixin = LinearRegression(),
+                                   cvs_kwargs: Optional[Dict[str, Any]] = None,
                                    verbose=False) -> List[str]:
     """Performs a leave-one-out ("loo") analysis to determine important features
 
@@ -125,28 +135,39 @@ def obtain_important_variables_loo(X: pd.DataFrame,
             to be contained in the final set
         model: Model to use for the analysis. Note that the results may heavily depend
             on the model chosen.
+        cvs_kwargs: Keyword arguments passed down to cross_val_score method
         verbose: Print progress
 
     Returns:
 
     """
-    _print_if_verbose(f"CV score start: {cross_val_score(model, X, y).mean()}.", verbose)
+    if cvs_kwargs is None:
+        cvs_kwargs = dict()
+
+    if "cv" not in cvs_kwargs.keys():
+        cvs_kwargs["cv"] = kfold
+
+    _print_if_verbose(f"CV score start: {cross_val_score(model, X, y, **cvs_kwargs).mean()}.", verbose)
     while True:
-        loo_scores = predictor_importance_loo(X, y, model, verbose=verbose)
+        loo_scores = predictor_importance_loo(X, y, model, verbose=verbose, cvs_kwargs=cvs_kwargs)
         lowest_score = loo_scores.loo_score.iat[-1]
+        new_cv_score = loo_scores.new_cv_score.iat[-1]
         least_important_feature = loo_scores.feature.iat[-1]
         if lowest_score > threshold:
             _print_if_verbose(f"Not removing feature {least_important_feature} with score {lowest_score}.", verbose)
             break
-        _print_if_verbose(f"Removed feature {least_important_feature} with score {lowest_score}.", verbose)
+        _print_if_verbose(
+            f"Removed feature {least_important_feature} with score {lowest_score}. New CV score: {new_cv_score}.",
+            verbose)
         X = X.drop(columns=least_important_feature)
-    _print_if_verbose(f"CV score end: {cross_val_score(model, X, y).mean()}.", verbose)
+    _print_if_verbose(f"CV score end: {cross_val_score(model, X, y, **cvs_kwargs).mean()}.", verbose)
     return list(X.columns)
 
 
 def predictor_importance_loo(X: pd.DataFrame,
                              y: np.ndarray,
                              model: RegressorMixin,
+                             cvs_kwargs: Optional[Dict[str, Any]] = None,
                              verbose: bool = True) -> pd.DataFrame:
     """Performs a leave-one-out ("loo") analysis to determine important features
 
@@ -163,6 +184,7 @@ def predictor_importance_loo(X: pd.DataFrame,
         y: Array containing the dependent feature
         model: Model to use for the analysis. Note that the results may heavily depend
             on the model chosen.
+        cvs_kwargs: Keyword arguments passed down to cross_val_score method
         verbose: print progress bar
 
     Returns:
@@ -171,15 +193,21 @@ def predictor_importance_loo(X: pd.DataFrame,
     results = {
         "feature": [],
         "loo_score": [],
+        "new_cv_score": [],
     }
+    if cvs_kwargs is None:
+        cvs_kwargs = dict()
 
-    score_with_feature = cross_val_score(model, X, y).mean()
+    if "cv" not in cvs_kwargs.keys():
+        cvs_kwargs["cv"] = kfold
+
+    score_with_feature = cross_val_score(model, X, y, **cvs_kwargs).mean()
 
     iter_set = tqdm(X.columns) if verbose else X.columns
 
     for feature_name in iter_set:
         X_wo_feature = X.drop(columns=[feature_name])
-        score_without_feature = cross_val_score(model, X_wo_feature, y).mean()
+        score_without_feature = cross_val_score(model, X_wo_feature, y, **cvs_kwargs).mean()
 
         if score_without_feature > 0:
             loo_score = 100 * (score_with_feature / score_without_feature - 1)
@@ -188,6 +216,7 @@ def predictor_importance_loo(X: pd.DataFrame,
 
         results["feature"].append(feature_name)
         results["loo_score"].append(loo_score)
+        results["new_cv_score"].append(score_without_feature)
     return pd.DataFrame(data=results).sort_values(by="loo_score", ascending=False)
 
 
@@ -195,6 +224,7 @@ def obtain_important_variables_ri(X: pd.DataFrame,
                                   y: np.ndarray,
                                   threshold: float = 0.01,
                                   model: RegressorMixin = LinearRegression(),
+                                  cvs_kwargs: Optional[Dict[str, Any]] = None,
                                   verbose=False) -> List[str]:
     """Performs a recursive inclusion analysis to determine important features
 
@@ -209,27 +239,37 @@ def obtain_important_variables_ri(X: pd.DataFrame,
             to be contained in the final set
         model: Model to use for the analysis. Note that the results may heavily depend
             on the model chosen.
+        cvs_kwargs: Keyword arguments passed down to cross_val_score method
         verbose: Print progress
 
     Returns:
 
     """
+    if cvs_kwargs is None:
+        cvs_kwargs = dict()
+
+    if "cv" not in cvs_kwargs.keys():
+        cvs_kwargs["cv"] = kfold
+
     X_base = X.drop(columns=X.columns)
     candidates = X.copy()
     while len(candidates.columns) > 0:
-        incl_scored = predictor_importance_incl(X_base, candidates, y, model, verbose=verbose)
+        incl_scored = predictor_importance_incl(X_base, candidates, y, model, cvs_kwargs, verbose=verbose)
         highest_score = incl_scored.include_score.iat[0]
+        new_cv_score = incl_scored.new_cv_score.iat[0]
         most_important_feature = incl_scored.feature.iat[0]
         if highest_score < threshold:
             _print_if_verbose(f"Not including feature {most_important_feature} with score {highest_score}.", verbose)
             break
-        _print_if_verbose(f"Included feature {most_important_feature} with score {highest_score}.", verbose)
+        _print_if_verbose(
+            f"Included feature {most_important_feature} with score {highest_score}. New CV score: {new_cv_score}.",
+            verbose)
         X_base[most_important_feature] = candidates[most_important_feature]
         candidates = candidates.drop(columns=most_important_feature)
 
     if verbose:
-        print(f"CV score end: {cross_val_score(model, X_base, y).mean()}.")
-        print(f"CV score all features: {cross_val_score(model, X, y).mean()}.")
+        print(f"CV score end: {cross_val_score(model, X_base, y, **cvs_kwargs).mean()}.")
+        print(f"CV score all features: {cross_val_score(model, X, y, **cvs_kwargs).mean()}.")
     return list(X_base.columns)
 
 
@@ -237,6 +277,7 @@ def predictor_importance_incl(X: pd.DataFrame,
                               candidates: pd.DataFrame,
                               y: np.ndarray,
                               model: RegressorMixin,
+                              cvs_kwargs: Optional[Dict[str, Any]] = None,
                               verbose: bool = True) -> pd.DataFrame:
     """Performs a recursive inclusion analysis to determine important features
 
@@ -255,6 +296,7 @@ def predictor_importance_incl(X: pd.DataFrame,
         y: Array containing the dependent feature
         model: Model to use for the analysis. Note that the results may heavily depend
             on the model chosen.
+        cvs_kwargs: Keyword arguments passed down to cross_val_score method
         verbose: print progress bar
 
     Returns:
@@ -263,21 +305,29 @@ def predictor_importance_incl(X: pd.DataFrame,
     results = {
         "feature": [],
         "include_score": [],
+        "new_cv_score": []
     }
 
-    base_score = cross_val_score(model, X, y).mean() if len(X.columns) > 0 else 0
+    if cvs_kwargs is None:
+        cvs_kwargs = dict()
+
+    if "cv" not in cvs_kwargs.keys():
+        cvs_kwargs["cv"] = kfold
+
+    base_score = cross_val_score(model, X, y, **cvs_kwargs).mean() if len(X.columns) > 0 else 0
 
     iter_set = tqdm(candidates.columns) if verbose else candidates.columns
 
     for feature_name in iter_set:
         X_plus_feature = X.copy()
         X_plus_feature[feature_name] = candidates[feature_name]
-        score_with_feature = cross_val_score(model, X_plus_feature, y).mean()
+        score_with_feature = cross_val_score(model, X_plus_feature, y, **cvs_kwargs).mean()
 
         include_score = score_with_feature - base_score
 
         results["feature"].append(feature_name)
         results["include_score"].append(include_score)
+        results["new_cv_score"].append(score_with_feature)
     return pd.DataFrame(data=results).sort_values(by="include_score", ascending=False)
 
 
@@ -311,7 +361,7 @@ def elasticnet_plot(X, y, l1_ratio=.5, log_alpha_min=-4, log_alpha_max=1, alpha_
     y_sc = (y - y.mean()) / y.std()
     results = np.empty((len(alphas), len(var_names)))
     for i, alpha in enumerate(alphas):
-        regressor = ElasticNet(fit_intercept=False, alpha=10**alpha, l1_ratio=l1_ratio, **kwargs)
+        regressor = ElasticNet(fit_intercept=False, alpha=10 ** alpha, l1_ratio=l1_ratio, **kwargs)
         regressor.fit(X_sc, y_sc)
         results[i] = regressor.coef_
     _vars = list()

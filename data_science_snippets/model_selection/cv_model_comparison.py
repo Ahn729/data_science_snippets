@@ -4,6 +4,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.base import TransformerMixin, BaseEstimator
+from sklearn.model_selection._split import _BaseKFold
 
 from sklearn.pipeline import make_pipeline
 from sklearn.model_selection import cross_val_score, KFold
@@ -97,6 +98,8 @@ class ModelComparer:
                  preprocessor: Optional[TransformerMixin] = None,
                  scorer: Union[str, Callable] = "neg_mean_squared_error",
                  multiply_by_minus_one: bool = True,
+                 cv: Union[int, _BaseKFold] = 5,
+                 n_jobs: Optional[int] = None,
                  models: Optional[List[BaseEstimator]] = None):
         """Creates a ModelComparer instance
 
@@ -108,28 +111,35 @@ class ModelComparer:
             multiply_by_minus_one: Whether result statistics shall be multiplied
                 by (-1). This gives more meaningful results if the scorer is
                 negative of something (like negative MSE)
+            cv: Integer depicting the number of cross validations to perform
+                or an sklearn KFold instance. Default: 5
+            n_jobs: Use n_jobs in the calculation of cross_val_scores
             models: dict of models for cross validation evaluation. Pass None
                 to use the built-in set of models
         """
         self.models = models or MODELS
         self.preprocessor = preprocessor
         self.scorer = scorer
+        self.cv = cv
         self.multiply_by_minus_one = multiply_by_minus_one
+        self.n_jobs = n_jobs
 
-    def fit(self, X_train, y_train, cv=5) -> ComparisonResult:
+        if isinstance(cv, int):
+            self.kfold = KFold(n_splits=cv, shuffle=True, random_state=42)
+        else:
+            self.kfold = cv
+
+    def fit(self, X_train, y_train) -> ComparisonResult:
         """Fit the comparer on the specified data
 
         Args:
             X_train, y_train: training set
-            cv: Number of cross validation iterations to perform. Default: 5
 
         Returns:
             A ComparisonResult containing the CV results
         """
         results = pd.DataFrame(columns=['Name', 'Result'])
         result_stats = pd.DataFrame(columns=['Name', 'Mean', 'Std.'])
-
-        kfold = KFold(n_splits=cv, shuffle=True, random_state=42)
 
         if self.multiply_by_minus_one:
             factor = -1
@@ -139,7 +149,12 @@ class ModelComparer:
         for name, model in self.models.items():
             print(f'Trying {name}.')
             regressor = make_pipeline(self.preprocessor, model)
-            cvs = cross_val_score(regressor, X_train, y_train, cv=kfold, scoring=self.scorer)
+            cvs = cross_val_score(regressor,
+                                  X_train,
+                                  y_train,
+                                  cv=self.kfold,
+                                  scoring=self.scorer,
+                                  n_jobs=self.n_jobs)
             result_stats.loc[len(result_stats)] = [name, factor*cvs.mean(), cvs.std()]
             for score in cvs:
                 results.loc[len(results)] = [name, factor*score]

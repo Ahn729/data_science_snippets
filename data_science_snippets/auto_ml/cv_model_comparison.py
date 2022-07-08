@@ -70,9 +70,19 @@ class AutoMLModelComparer:
 
         self._reduced_data = reduce_dataset(self.data, remove_nans=True, **nan_handler_kwargs)
         self._outliers = recursive_outlier_detection(self.reduced_data, **outlier_detection_kwargs)
+        print(f"Removed {len(self._outliers)} outliers.")
         df = self.reduced_data.drop(self.outliers.index)
         X, y = df.drop(columns=target), df[target]
+
+        if 'method' in independent_variables_kwargs and independent_variables_kwargs['method'] in [
+                'ri', 'recursive_inclusion',
+                'loo', 'leave_one_out'
+            ]:
+            independent_variables_kwargs['y'] = y
+
         self._ind_vars = obtain_independent_variables(X, **independent_variables_kwargs)
+        print(f"Selected {len(self._ind_vars)} independent variables (from {len(X.columns)}):")
+        print(f"{', '.join(self._ind_vars)}")
         X = X[self.ind_vars]
 
         if 'preprocessor' not in model_comparer_kwargs:

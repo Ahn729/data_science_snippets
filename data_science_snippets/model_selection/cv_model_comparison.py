@@ -148,7 +148,10 @@ class ModelComparer:
 
         for name, model in self.models.items():
             print(f'Trying {name}.')
-            regressor = make_pipeline(self.preprocessor, model)
+            if self.preprocessor is not None:
+                regressor = make_pipeline(self.preprocessor, model)
+            else:
+                regressor = model
             cvs = cross_val_score(regressor,
                                   X_train,
                                   y_train,

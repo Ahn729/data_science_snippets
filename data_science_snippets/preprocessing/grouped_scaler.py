@@ -60,6 +60,8 @@ class GroupedScaler(BaseEstimator, TransformerMixin):
     def get_feature_names_out(self, input_features=None):
         feature_names = input_features if input_features is not None else self.cols
         if self.output_grouping_var:
+            if self.by not in feature_names:
+                return [self.by, *feature_names]
             return feature_names
         else:
             return [feat for feat in feature_names if feat != self.by]

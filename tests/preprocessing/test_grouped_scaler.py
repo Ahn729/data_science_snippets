@@ -46,7 +46,6 @@ class TestGroupedScaler(TestCase):
             ]).all()
         )
 
-
     def test_fit_transform_is_correct_c2(self):
         gs = GroupedScaler(by="cat_col")
         result = gs.fit_transform(self.df)
@@ -54,5 +53,18 @@ class TestGroupedScaler(TestCase):
         self.assertAlmostEqual(result.at[3, "num_col_2"], -1)
         self.assertAlmostEqual(result.at[4, "num_col_2"], 1)
         self.assertTrue((result.loc[5:8, "num_col_2"] == 0).all())
+
+    def test_get_feature_names_out_with_grouping_var(self):
+        gs = GroupedScaler(by="cat_col", output_grouping_var=True)
+        gs.fit(self.df)
+        feature_names = gs.get_feature_names_out()
+        self.assertListEqual(feature_names, ["cat_col", "num_col_1", "num_col_2"])
+
+    def test_get_feature_names_out_without_grouping_var(self):
+        gs = GroupedScaler(by="cat_col", output_grouping_var=False)
+        gs.fit(self.df)
+        feature_names = gs.get_feature_names_out()
+        self.assertListEqual(feature_names, ["num_col_1", "num_col_2"])
+
 
 

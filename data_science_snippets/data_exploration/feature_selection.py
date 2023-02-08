@@ -1,4 +1,5 @@
-__all__ = ['obtain_independent_variables', 'obtain_independent_variables_vif', 'obtain_important_variables_loo',
+__all__ = ['obtain_independent_variables', 'obtain_independent_variables_vif',
+           'obtain_important_variables_loo',
            'obtain_uncorrelated_variables', 'predictor_importance_loo', 'elasticnet_plot']
 
 from itertools import cycle
@@ -7,16 +8,42 @@ from typing import List, Optional, Any, Dict
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+from scipy.stats import t
 from sklearn.base import RegressorMixin
+from sklearn.dummy import DummyRegressor
 from sklearn.linear_model import ElasticNet, LinearRegression
-from sklearn.model_selection import cross_val_score, KFold
+from sklearn.model_selection import cross_val_score, RepeatedKFold
 from sklearn.preprocessing import StandardScaler
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.tools import add_constant
 from tqdm import tqdm
 
+kfold = RepeatedKFold(n_splits=10, n_repeats=10, random_state=42)
 
-kfold = KFold(shuffle=True, random_state=42)
+
+def _corrected_std(differences, n_train, n_test):
+    """Corrects standard deviation using Nadeau and Bengio's approach.
+
+    Ref: https://scikit-learn.org/stable/auto_examples/model_selection/plot_grid_search_stats
+    .html#sphx-glr-auto-examples-model-selection-plot-grid-search-stats-py"""
+
+    kr = len(differences)
+    corrected_var = np.var(differences, ddof=1) * (1 / kr + n_test / n_train)
+    corrected_std = np.sqrt(corrected_var)
+    return corrected_std
+
+
+def _compute_corrected_ttest(differences, deg_f, n_train, n_test):
+    """Computes right-tailed paired t-test with corrected variance.
+
+    Ref: https://scikit-learn.org/stable/auto_examples/model_selection/plot_grid_search_stats
+    .html#sphx-glr-auto-examples-model-selection-plot-grid-search-stats-py
+    """
+    mean = np.mean(differences)
+    std = _corrected_std(differences, n_train, n_test)
+    t_stat = mean / std
+    p_val = t.sf(np.abs(t_stat), deg_f)  # right-tailed t-test
+    return t_stat, p_val
 
 
 def _print_if_verbose(message, verbose):
@@ -41,7 +68,7 @@ def obtain_independent_variables(data: pd.DataFrame,
             "variance_inflation_factor", "leave_one_out", "recursive_inclusion" or "correlation"
          threshold: Threshold used to flag features as dependent (in some way) if
             value of method exceeds this value. Default: 0.5 for "correlation",
-            1 for "leave_one_out", 0.1 for "recursive_inclusion" and 5 for "variance_inflation_factor"
+            1 for "leave_one_out", 0.05 for "recursive_inclusion" and 5 for "variance_inflation_factor"
         kwargs: Only used for "leave_one_out" and "recursive_inclusion". In that case please specify
          the dependent variable "y=..." as well as the model to use "model=..."
 
@@ -60,8 +87,8 @@ def obtain_independent_variables(data: pd.DataFrame,
         threshold = threshold or 1
         return obtain_important_variables_loo(X=data, threshold=threshold, **kwargs)
     if method in ['recursive_inclusion', 'ri']:
-        threshold = threshold or 0.1
-        return obtain_important_variables_ri(X=data, threshold=threshold, **kwargs)
+        threshold = threshold or 0.05
+        return obtain_important_variables_ri(X=data, significance=threshold, **kwargs)
     raise ValueError("""Method not understood. Please specify either
         'variance_inflation_factor', 'leave_one_out', 'recursive_inclusion' or 'correlation'.""")
 
@@ -147,20 +174,26 @@ def obtain_important_variables_loo(X: pd.DataFrame,
     if "cv" not in cvs_kwargs.keys():
         cvs_kwargs["cv"] = kfold
 
-    _print_if_verbose(f"CV score start: {cross_val_score(model, X, y, **cvs_kwargs).mean()}.", verbose)
+    _print_if_verbose(f"CV score start: {cross_val_score(model, X, y, **cvs_kwargs).mean()}.",
+                      verbose)
     while True:
         loo_scores = predictor_importance_loo(X, y, model, verbose=verbose, cvs_kwargs=cvs_kwargs)
         lowest_score = loo_scores.loo_score.iat[-1]
         new_cv_score = loo_scores.new_cv_score.iat[-1]
         least_important_feature = loo_scores.feature.iat[-1]
         if lowest_score > threshold:
-            _print_if_verbose(f"Not removing feature {least_important_feature} with score {lowest_score}.", verbose)
+            _print_if_verbose(
+                f"Not removing feature {least_important_feature} with score {lowest_score} (CV score: {new_cv_score}).",
+                verbose)
+            _print_if_verbose("Scores last iteration:", verbose)
+            _print_if_verbose(loo_scores, verbose)
             break
         _print_if_verbose(
             f"Removed feature {least_important_feature} with score {lowest_score}. New CV score: {new_cv_score}.",
             verbose)
         X = X.drop(columns=least_important_feature)
-    _print_if_verbose(f"CV score end: {cross_val_score(model, X, y, **cvs_kwargs).mean()}.", verbose)
+    _print_if_verbose(f"CV score end: {cross_val_score(model, X, y, **cvs_kwargs).mean()}.",
+                      verbose)
     return list(X.columns)
 
 
@@ -222,7 +255,7 @@ def predictor_importance_loo(X: pd.DataFrame,
 
 def obtain_important_variables_ri(X: pd.DataFrame,
                                   y: np.ndarray,
-                                  threshold: float = 0.01,
+                                  significance: float = 0.05,
                                   model: RegressorMixin = LinearRegression(),
                                   cvs_kwargs: Optional[Dict[str, Any]] = None,
                                   verbose=False) -> List[str]:
@@ -235,8 +268,8 @@ def obtain_important_variables_ri(X: pd.DataFrame,
     Args:
         X: Data frame containing independent features.
         y: Array containing the dependent feature
-        threshold: Minimum amount that a feature must contribute to model score
-            to be contained in the final set
+        significance: Significance (p-value) to accept that a new model is
+            better than the old one.
         model: Model to use for the analysis. Note that the results may heavily depend
             on the model chosen.
         cvs_kwargs: Keyword arguments passed down to cross_val_score method
@@ -254,15 +287,20 @@ def obtain_important_variables_ri(X: pd.DataFrame,
     X_base = X.drop(columns=X.columns)
     candidates = X.copy()
     while len(candidates.columns) > 0:
-        incl_scored = predictor_importance_incl(X_base, candidates, y, model, cvs_kwargs, verbose=verbose)
-        highest_score = incl_scored.include_score.iat[0]
+        incl_scored = predictor_importance_incl(X_base, candidates, y, model, cvs_kwargs,
+                                                verbose=verbose)
+        highest_score = incl_scored.bonf_p.iat[0]
         new_cv_score = incl_scored.new_cv_score.iat[0]
         most_important_feature = incl_scored.feature.iat[0]
-        if highest_score < threshold:
-            _print_if_verbose(f"Not including feature {most_important_feature} with score {highest_score}.", verbose)
+        if highest_score > significance:
+            _print_if_verbose(
+                f"Not including feature {most_important_feature} with significance {highest_score} (CV score: {new_cv_score}). ",
+                verbose)
+            _print_if_verbose("Scores last iteration:", verbose)
+            _print_if_verbose(incl_scored, verbose)
             break
         _print_if_verbose(
-            f"Included feature {most_important_feature} with score {highest_score}. New CV score: {new_cv_score}.",
+            f"Included feature {most_important_feature} with significance {highest_score}. New CV score: {new_cv_score}.",
             verbose)
         X_base[most_important_feature] = candidates[most_important_feature]
         candidates = candidates.drop(columns=most_important_feature)
@@ -283,11 +321,8 @@ def predictor_importance_incl(X: pd.DataFrame,
 
     Iterates over all features in the candidates dataset and determines the scores (R^2-values)
     of the model fitted on the data in X plus the feature. Features will then be ranked
-    according to the score gain that including this feature implied, relative to the
-    score of the model on the original dataset. Scores are computed using k-fold cross-validation
-    The result dataset contains values equal to the increase in score, i.e.
-            <score of model with feature> - <score of model without feature>
-    (bigger is better).
+    according to the t-statistic that including this feature implies a model improvement compared
+    to the model on the original dataset. Scores are computed using k-fold cross-validation.
 
     Args:
         X: Data frame containing independent features.
@@ -304,7 +339,9 @@ def predictor_importance_incl(X: pd.DataFrame,
     """
     results = {
         "feature": [],
-        "include_score": [],
+        "p_val": [],
+        "bonf_p": [],
+        "t_stat": [],
         "new_cv_score": []
     }
 
@@ -313,25 +350,42 @@ def predictor_importance_incl(X: pd.DataFrame,
 
     if "cv" not in cvs_kwargs.keys():
         cvs_kwargs["cv"] = kfold
+    cv = cvs_kwargs["cv"]
 
-    base_score = cross_val_score(model, X, y, **cvs_kwargs).mean() if len(X.columns) > 0 else 0
+    first_split = list(cv.split(y, y))[0]
+
+    n_train = len(first_split[0])
+    n_test = len(first_split[1])
+
+    if len(X.columns) > 0:
+        base_scores = cross_val_score(model, X, y, **cvs_kwargs)
+    else:
+        base_scores = cross_val_score(DummyRegressor(), y, y, **cvs_kwargs)
 
     iter_set = tqdm(candidates.columns) if verbose else candidates.columns
 
     for feature_name in iter_set:
         X_plus_feature = X.copy()
         X_plus_feature[feature_name] = candidates[feature_name]
-        score_with_feature = cross_val_score(model, X_plus_feature, y, **cvs_kwargs).mean()
+        scores_with_feature = cross_val_score(model, X_plus_feature, y, **cvs_kwargs)
 
-        include_score = score_with_feature - base_score
+        differences = scores_with_feature - base_scores
+
+        t_stat, p_val = _compute_corrected_ttest(
+            differences,
+            differences.shape[0] - 1,
+            n_train, n_test)
 
         results["feature"].append(feature_name)
-        results["include_score"].append(include_score)
-        results["new_cv_score"].append(score_with_feature)
-    return pd.DataFrame(data=results).sort_values(by="include_score", ascending=False)
+        results["p_val"].append(p_val)
+        results["bonf_p"].append(p_val * len(candidates.columns))
+        results["t_stat"].append(t_stat)
+        results["new_cv_score"].append(scores_with_feature.mean())
+    return pd.DataFrame(data=results).sort_values(by="t_stat", ascending=False)
 
 
-def elasticnet_plot(X, y, l1_ratio=.5, log_alpha_min=-4, log_alpha_max=1, alpha_step=50, ax=None, **kwargs):
+def elasticnet_plot(X, y, l1_ratio=.5, log_alpha_min=-4, log_alpha_max=1, alpha_step=50, ax=None,
+                    **kwargs):
     """Plots ElasticNet regression coefficients against Lagrange multiplier
 
 

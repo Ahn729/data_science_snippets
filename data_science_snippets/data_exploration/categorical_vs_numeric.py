@@ -1,4 +1,5 @@
 import warnings
+from dataclasses import dataclass
 from typing import Optional, Tuple, Any, Literal
 
 from pandas.core.dtypes.common import is_numeric_dtype
@@ -10,7 +11,8 @@ import scipy.stats as sp
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-__all__ = ['anova', 'anova_for_all', 'kruskal', 'kruskal_for_all', 'kruskal_one_vs_all', 'strip_and_boxplot']
+__all__ = ['anova', 'anova_for_all', 'kruskal', 'kruskal_for_all', 'kruskal_one_vs_all',
+           'strip_and_boxplot', 'kruskal_significant_difference', 'KSDResult']
 
 
 def anova(dataset: pd.DataFrame, test_col: str, target_col: str) -> np.float:
@@ -32,7 +34,8 @@ def anova(dataset: pd.DataFrame, test_col: str, target_col: str) -> np.float:
     return result.iloc[0, -1]
 
 
-def anova_for_all(dataset: pd.DataFrame, target_col: str, significance: float = 0.05) -> pd.DataFrame:
+def anova_for_all(dataset: pd.DataFrame, target_col: str,
+                  significance: float = 0.05) -> pd.DataFrame:
     """Performs a one-way ANOVA F-test for all categorical columns against target_col.
 
     Performs a one-way ANOVA F-test to all tuples of the form
@@ -66,12 +69,13 @@ def anova_for_all(dataset: pd.DataFrame, target_col: str, significance: float = 
     return df.set_index('Column').sort_values(by='p-val')
 
 
-def kruskal(dataset: pd.DataFrame, test_col: str, target_col: str, nan_policy: str = 'propagate') -> np.float:
+def kruskal(dataset: pd.DataFrame, test_col: str, target_col: str,
+            nan_policy: str = 'propagate') -> np.float:
     """Applies Kruskal-Wallis H-test to a single column
 
 
     Applies Kruskal-Wallis H-test to (test col, target_col) in order to
-    test whether the medians in each of the classes in test_col are equal.
+    test whether one class dominates another.
 
     Args:
         dataset: dataset to check
@@ -100,12 +104,14 @@ def kruskal(dataset: pd.DataFrame, test_col: str, target_col: str, nan_policy: s
         warnings.warn(f'Ignoring column {test_col}: Too few (<5) samples in each class.')
         return np.nan
 
-    samples = [dataset[column == value][target_col] for value in column.unique() if not pd.isna(value)]
+    samples = [dataset[column == value][target_col] for value in column.unique() if
+               not pd.isna(value)]
     _nan_policy = nan_policy if nan_policy != 'handle' else 'omit'
     p_value = sp.kruskal(*samples, nan_policy=_nan_policy).pvalue
     if np.isnan(p_value):
-        warnings.warn(f"Obtained nan for column {test_col}. This may happen if your input contained "
-                      f"nan values. In that case, consider setting nan_policy='handle'.")
+        warnings.warn(
+            f"Obtained nan for column {test_col}. This may happen if your input contained "
+            f"nan values. In that case, consider setting nan_policy='handle'.")
     return p_value
 
 
@@ -116,8 +122,8 @@ def kruskal_for_all(dataset: pd.DataFrame,
     """Applies Kruskal-Wallis H-test to all columns
 
     Applies Kruskal-Wallis H-test to all tuples of the form
-    (col, target_col) in order to test whether the medians in each
-    of the classes are equal. If target_col is numeric, kruskal
+    (col, target_col) in order to test whether one class
+    dominates another. If target_col is numeric, kruskal
     checks categorical columns and vice versa.
 
     Args:
@@ -194,7 +200,8 @@ def kruskal_one_vs_all(dataset: pd.DataFrame,
         if not significance or pr_f <= significance:
             result_dict[category] = [pr_f, pr_f * num_cat, len(in_cat)]
             if include_stats:
-                result_dict[category] += [in_cat.mean(), nin_cat.mean(), in_cat.std(), nin_cat.std()]
+                result_dict[category] += [in_cat.mean(), nin_cat.mean(), in_cat.std(),
+                                          nin_cat.std()]
 
     columns = ['p', 'bonf(p)', 'n']
     if include_stats:
@@ -206,15 +213,61 @@ def kruskal_one_vs_all(dataset: pd.DataFrame,
     return df.sort_values(by='p')
 
 
+@dataclass
+class KSDResult:
+    significant_difference: float
+    p_value: float
+    mean_diff: float
+    n_iter_exhausted: bool
+
+
+def kruskal_significant_difference(x, y, p=0.05, max_iter=1000, tol=1e-3, initial_step_size=0.05):
+    """Given two observation vectors x and y, computes the ´maximal difference d such that
+    the p-value of the Kruskal-Wallis H-test of x shifted by d and y is at least p."""
+    mean_diff = y.mean() - x.mean()
+    p_value = sp.kruskal(x, y).pvalue
+    if p_value > p:
+        return KSDResult(
+            significant_difference=np.nan,
+            p_value=np.nan,
+            mean_diff=mean_diff,
+            n_iter_exhausted=False
+        )
+    else:
+        established_diff = 0
+        established_p = p
+        step_size = initial_step_size
+        for _ in range(max_iter):
+            x_shift = x + established_diff + step_size * mean_diff
+            p_new = sp.kruskal(x_shift, y).pvalue
+            if p - tol <= p_new <= p + tol:
+                return KSDResult(
+                    significant_difference=established_diff + step_size * mean_diff,
+                    p_value=p_new,
+                    mean_diff=mean_diff,
+                    n_iter_exhausted=False
+                )
+            elif p_new >= p:
+                step_size *= 0.5
+            elif p_new <= p:
+                established_diff = established_diff + step_size * mean_diff
+                established_p = p_new
+        return KSDResult(
+            significant_difference=established_diff,
+            p_value=established_p,
+            mean_diff=mean_diff,
+            n_iter_exhausted=True
+        )
+
+
 def _combined_boxplot(kind: Literal['stripplot', 'swarmplot'],
                       common_kwargs: dict,
                       boxplot_kwargs: dict,
                       pointplot_kwargs: dict,
                       figsize: Optional[Tuple[int, int]] = None):
-
     ax = common_kwargs.get('ax', None)
     if not ax:
-        fig, ax = plt.subplots(figsize=figsize)
+        _, ax = plt.subplots(figsize=figsize)
         common_kwargs['ax'] = ax
 
     pointplot = getattr(sns, kind)
@@ -238,7 +291,8 @@ def strip_and_boxplot(data: pd.DataFrame,
         common_kwargs['ax'] = ax
     pointplot_kwargs = dict(hue=hue, alpha=alpha, jitter=.15, **strip_kwargs)
     boxplot_kwargs = box_kwargs
-    return _combined_boxplot("stripplot", common_kwargs, boxplot_kwargs, pointplot_kwargs, figsize=figsize)
+    return _combined_boxplot("stripplot", common_kwargs, boxplot_kwargs, pointplot_kwargs,
+                             figsize=figsize)
 
 
 def swarm_and_boxplot(data: pd.DataFrame,
@@ -256,4 +310,5 @@ def swarm_and_boxplot(data: pd.DataFrame,
         common_kwargs['ax'] = ax
     pointplot_kwargs = dict(hue=hue, alpha=alpha, **swarm_kwargs)
     boxplot_kwargs = box_kwargs
-    return _combined_boxplot("swarmplot", common_kwargs, boxplot_kwargs, pointplot_kwargs, figsize=figsize)
+    return _combined_boxplot("swarmplot", common_kwargs, boxplot_kwargs, pointplot_kwargs,
+                             figsize=figsize)
